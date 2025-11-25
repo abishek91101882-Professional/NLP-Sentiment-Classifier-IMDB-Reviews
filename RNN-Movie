@@ -1,118 +1,214 @@
-from string import punctuation
-
-import nltk
 import pandas as pd
 
-#nltk.download()
-
-from nltk.tokenize import word_tokenize
-from nltk.tokenize import sent_tokenize
-from nltk.corpus import stopwords
-from nltk import stem
-from tensorflow.python.ops.math_ops import negative
-
-df = pd.read_csv(r'IMDB Dataset_22.csv')
+df = pd.read_csv(r'IMDB Dataset.csv')
 print(df)
-print(df.dtypes)
+print(df.sentiment.value_counts())
+print(df.isnull().sum())
 
-df['sentiment'] = pd.factorize(df['sentiment'])[0]
-df['sentiment'] = 1- df['sentiment'] #to reverse the 1,0
-print(df.dtypes)
-print(df)
+#Plotting no.of reviews in each statement
+import seaborn as sn
+import matplotlib.pyplot as plt
 
-from collections import Counter
-print(Counter(df.sentiment))
+sn.set_style('darkgrid')
+plt.figure(figsize=(4,5))
+sn.countplot(df.sentiment)
+plt.title("Count of reviews")
+plt.xlabel('Review')
+plt.ylabel('Count')
+print(plt.show())
 
-check=list()
-final_lines_stem=[]
-final_lines_lematizer=list()
-lines=df['review'].values.tolist()
-print(len(lines))
-print(type(lines))
+sample_data=df.review.loc[1]
+print(sample_data)
 
-stemmer=stem.PorterStemmer()
-lematizer=stem.WordNetLemmatizer()
+#Removing html Tags
+import re
+from bs4 import BeautifulSoup
 
-for line in lines:
-    #convert to lower case
-    line=[w.lower() for w in line]
+soup=BeautifulSoup(sample_data,'html.parser')
+sample_data=soup.get_text()
+print(sample_data)
 
-    #removing punctutation
-    punctuation=r"!@#$%^&*(\|);:'',.?/<>[]{}_-+="
-    stripped=''
-    for char in line:
-        if char not in punctuation:
-            stripped=stripped+char
+#Removing symbols with Regular Expressions
+sample_data=re.sub('[^a-zA-Z]',' ',sample_data)
+print(sample_data)
 
-    #word tokens
-    tokens=nltk.word_tokenize(stripped)
-    check.append(tokens)
+#Covert to lower case
+print(sample_data.lower())
 
-    #word in tokens that doesn't have numbers
-    words=[word for word in tokens if word.isalpha()]
+#Removing stop words which can be done after splitting each word into a list
+sample_data=sample_data.split()
+print(sample_data)
 
-    #Removing stop words
-    stop_words=set(stopwords.words('english'))
-    words=[w for w in words if not w in stop_words]
+import nltk
+stop_word=nltk.corpus.stopwords.words('english')
+print(stop_word[0:10])
 
-    #word stemming
-    word_stem=[stemmer.stem(w) for w in words]
-    final_lines_stem.append(word_stem)
+#Removing stop words before removing punctuations and symbols
+import csv
+sentence=[]
+label=[]
+with open(r'C:\Users\abhishek.sakthivel\Downloads\archive (1)\IMDB Dataset.csv','r',encoding='utf-8') as csvfile:
+    read=csv.reader(csvfile,delimiter=',')
+    next(read)
+    for row in read:
+        label.append(row[1])
+        sentence_1=row[0]
+        for word in stop_word:
+            token=' '+word+' '
+            sentence_1=sentence_1.replace(token,' ')
+        sentence.append(sentence_1)
+#print(sentence)
+#print(label[0])
 
-    #word Lematizing
-    word_lematize=[lematizer.lemmatize(w) for w in words]
-    final_lines_lematizer.append(word_lematize)
+#Encoding sentiments with 1,0
+from sklearn import preprocessing
+label_encoder=preprocessing.LabelEncoder()
+labels=label_encoder.fit_transform(label)
+print(labels[0:10])
 
-print(check[1:10])
-print(final_lines_stem[1:10])
-print(final_lines_lematizer[1:10])
+#Splitting the data
+training_portion=0.8 #Taking 80% data for training
+train_size=int(len(sentence)* training_portion)
 
-#Bag of words
-from sklearn.feature_extraction.text import CountVectorizer
-cv=CountVectorizer()
-#It will not work on final_lines_Lematizer the list we created as Countvectorizer directly works on sentences but on tokens
-x1=cv.fit_transform(['Good boy','Good girl']).toarray()
-print(x1)
+train_sentence=sentence[:train_size]
+train_label=labels[:train_size]
 
-#TFIDF
-from sklearn.feature_extraction.text import TfidfVectorizer
-cv=TfidfVectorizer()
-#It will not work on final_lines_Lematizer the list we created as Countvectorizer directly works on sentences but on tokens
-x2=cv.fit_transform(['Good boy','Good girl']).toarray()
-print(x2)
+validation_sentence=sentence[train_size:]
+validation_label=labels[train_size:]
+
+print(len(train_sentence))
+print(len(train_label))
+print(len(validation_sentence))
+print(len(validation_label))
+
+import numpy as np
+training_label_final=np.array(train_label)
+testing_label_final = np.array(validation_label)
+
+#Tokenizing
+vocab_size=10000
+embedding_dim=32
+max_length=120
+trunc_type='post'
+oov_tok='<OOV>'
+
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+tokenizers=Tokenizer(num_words=vocab_size,oov_token=oov_tok)
+tokenizers.fit_on_texts(train_sentence)
+word_index=tokenizers.word_index
+sequence=tokenizers.texts_to_sequences(train_sentence)
+padded=pad_sequences(sequence,maxlen=max_length,truncating=trunc_type)
+#We are taking maximum 120 words from a sentence, any sentence goes beyond that will be truncated till last.
+
+testing_sequence=tokenizers.texts_to_sequences(validation_sentence)
+testing_padded=pad_sequences(testing_sequence,maxlen=max_length)
+
+import tensorflow as tf
+
+model=tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size,embedding_dim,input_length=max_length),
+    tf.keras.layers.Bidirectional(tf.keras.layers.GRU(32)),
+    tf.keras.layers.Dense(6,activation='relu'),
+    tf.keras.layers.Dense(1,activation='sigmoid')
+])
+
+model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+model.summary()
+
+n_epochs=10
+hist=model.fit(padded,training_label_final,epochs=n_epochs,validation_data=(testing_padded,
+                                                                            testing_label_final))
+
+def plot_graph(history,string):
+    plt.plot(history.history[string])
+    plt.plot(history.history['val_'+string])
+    plt.xlabel('Epoch')
+    plt.ylabel(string)
+    plt.legend([string,'val_'+string])
+    print(plt.show())
 
 
-#This is for converting paragraphs to sentences
-#sentences=nltk.sent_tokenize('I am good at dancing, what is yours')
-#print(sentences)
+plot_graph(hist,'accuracy')
+plot_graph(hist,'loss')
 
-#Individual words are called as tokens in text analytics - so here the individual words inside the list - final_lines_lematizer are the tokens
-#The list of all the words are called corpus - so here the list - final_lines_lematizer with all the words after breaking them are called as corpus.
+#Model with Conv-1D
+model2=tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size,embedding_dim,input_length=max_length),
+    tf.keras.layers.Conv1D(128,5,activation='relu'), #Because it is a text- so 1D
+    tf.keras.layers.GlobalAvgPool1D(),
+    tf.keras.layers.Dense(6,activation='relu'),
+    tf.keras.layers.Dense(1,activation='sigmoid')
+])
 
-from gensim.test.utils import common_texts,get_tmpfile
-from gensim.models import Word2Vec
+model2.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+model2.summary() #study the parameters and neurons in each layer for interview
 
-#Word2Vec - is a transfer learning algorithm to convert word to vectors with cbow,skip-gram
-#min_count = 1 means it will take all words to transfer.
-#min_count=2 means, it will take only those words repeated twice in the list to convert them to vectors.
-#vector_size = 300, convert each word with 300 vectors
-#window = 5, related to cbow/skipgram algorithm, look for 5 neighbouring similar words
-model=Word2Vec(final_lines_lematizer,min_count=1,vector_size=300,window=5)
+n_epochs=10
+hist=model2.fit(padded,training_label_final,epochs=n_epochs,validation_data=(testing_padded,
+                                                                            testing_label_final))
 
-result = model.wv.most_similar(positive=["good","nice"],negative=['good'],topn=3)
-print(result)
-#return most similar words to nice cause, good+nice-good=nice
-#topn=3 - it will return top 3 similar words in the dataset that we gave here it was final_lines_lematizer
-#we shall try google word2vec model for better accuracy cause it has large pool of words dictionary
+plot_graph(hist,'accuracy')
+plot_graph(hist,'loss')
 
-model_word=list(model.wv.vocab)
-print(len(model_word))
-print(model_word)
-print(model.wv.most_similar('something'))
+#Model with LSTM
+model3=tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size,embedding_dim,input_length=max_length),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64)),
+    tf.keras.layers.Dense(6,activation='relu'),
+    tf.keras.layers.Dense(1,activation='sigmoid')
+])
 
-#To look at the vectors that we formed now
-#print(model.wv.vectors)
-print(len(model.wv.vectors))
-#print(model.wv['decent'])
-print(model.wv.vectors[0])
+n_epochs=10
+hist=model3.fit(padded,training_label_final,epochs=n_epochs,validation_data=(testing_padded,
+                                                                            testing_label_final))
+
+plot_graph(hist,'accuracy')
+plot_graph(hist,'loss')
+
+#With Multi-Layer LSTM model
+model4=tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size,embedding_dim,input_length=max_length),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64,return_sequences=True)),#To maintain the same input neurons as previous instead of having only this 128 - see it in summary
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(32)),
+    tf.keras.layers.Dense(6,activation='relu'),
+    tf.keras.layers.Dense(1,activation='sigmoid')
+])
+
+model4.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+model4.summary()
+
+n_epochs=10
+hist=model4.fit(padded,training_label_final,epochs=n_epochs,validation_data=(testing_padded,
+                                                                            testing_label_final))
+
+#Combining all the models
+model5=tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size,embedding_dim,input_length=max_length),
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Conv1D(128,5,activation='relu'),
+    tf.keras.layers.MaxPooling1D(pool_size=4),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128,return_sequences=True)),#To maintain the same input neurons as previous instead of having only this 128 - see it in summary
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(80,return_sequences=True)),
+    tf.keras.layers.MaxPooling1D(pool_size=2),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64,return_sequences=True)),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(32)),
+    tf.keras.layers.Dense(6,activation='relu'),
+    tf.keras.layers.Dense(1,activation='sigmoid')])
+
+model5.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+model5.summary()
+
+n_epochs=10
+hist=model5.fit(padded,training_label_final,epochs=n_epochs,validation_data=(testing_padded,
+                                                                            testing_label_final))
+
+#Difference between Average pooling & Max-pooling, and how the neurons are distributed - research it
+#Here maxpooling = 4, the neurons reudce by 4 times from 116 to 29, but the 128 remains same - look at summary
+#In averagepooling - the 116 disappears and only 128 will be there
+
+plot_graph(hist,'accuracy')
+plot_graph(hist,'loss')
+
 
