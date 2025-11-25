@@ -1,0 +1,118 @@
+from string import punctuation
+
+import nltk
+import pandas as pd
+
+#nltk.download()
+
+from nltk.tokenize import word_tokenize
+from nltk.tokenize import sent_tokenize
+from nltk.corpus import stopwords
+from nltk import stem
+from tensorflow.python.ops.math_ops import negative
+
+df = pd.read_csv(r'IMDB Dataset_22.csv')
+print(df)
+print(df.dtypes)
+
+df['sentiment'] = pd.factorize(df['sentiment'])[0]
+df['sentiment'] = 1- df['sentiment'] #to reverse the 1,0
+print(df.dtypes)
+print(df)
+
+from collections import Counter
+print(Counter(df.sentiment))
+
+check=list()
+final_lines_stem=[]
+final_lines_lematizer=list()
+lines=df['review'].values.tolist()
+print(len(lines))
+print(type(lines))
+
+stemmer=stem.PorterStemmer()
+lematizer=stem.WordNetLemmatizer()
+
+for line in lines:
+    #convert to lower case
+    line=[w.lower() for w in line]
+
+    #removing punctutation
+    punctuation=r"!@#$%^&*(\|);:'',.?/<>[]{}_-+="
+    stripped=''
+    for char in line:
+        if char not in punctuation:
+            stripped=stripped+char
+
+    #word tokens
+    tokens=nltk.word_tokenize(stripped)
+    check.append(tokens)
+
+    #word in tokens that doesn't have numbers
+    words=[word for word in tokens if word.isalpha()]
+
+    #Removing stop words
+    stop_words=set(stopwords.words('english'))
+    words=[w for w in words if not w in stop_words]
+
+    #word stemming
+    word_stem=[stemmer.stem(w) for w in words]
+    final_lines_stem.append(word_stem)
+
+    #word Lematizing
+    word_lematize=[lematizer.lemmatize(w) for w in words]
+    final_lines_lematizer.append(word_lematize)
+
+print(check[1:10])
+print(final_lines_stem[1:10])
+print(final_lines_lematizer[1:10])
+
+#Bag of words
+from sklearn.feature_extraction.text import CountVectorizer
+cv=CountVectorizer()
+#It will not work on final_lines_Lematizer the list we created as Countvectorizer directly works on sentences but on tokens
+x1=cv.fit_transform(['Good boy','Good girl']).toarray()
+print(x1)
+
+#TFIDF
+from sklearn.feature_extraction.text import TfidfVectorizer
+cv=TfidfVectorizer()
+#It will not work on final_lines_Lematizer the list we created as Countvectorizer directly works on sentences but on tokens
+x2=cv.fit_transform(['Good boy','Good girl']).toarray()
+print(x2)
+
+
+#This is for converting paragraphs to sentences
+#sentences=nltk.sent_tokenize('I am good at dancing, what is yours')
+#print(sentences)
+
+#Individual words are called as tokens in text analytics - so here the individual words inside the list - final_lines_lematizer are the tokens
+#The list of all the words are called corpus - so here the list - final_lines_lematizer with all the words after breaking them are called as corpus.
+
+from gensim.test.utils import common_texts,get_tmpfile
+from gensim.models import Word2Vec
+
+#Word2Vec - is a transfer learning algorithm to convert word to vectors with cbow,skip-gram
+#min_count = 1 means it will take all words to transfer.
+#min_count=2 means, it will take only those words repeated twice in the list to convert them to vectors.
+#vector_size = 300, convert each word with 300 vectors
+#window = 5, related to cbow/skipgram algorithm, look for 5 neighbouring similar words
+model=Word2Vec(final_lines_lematizer,min_count=1,vector_size=300,window=5)
+
+result = model.wv.most_similar(positive=["good","nice"],negative=['good'],topn=3)
+print(result)
+#return most similar words to nice cause, good+nice-good=nice
+#topn=3 - it will return top 3 similar words in the dataset that we gave here it was final_lines_lematizer
+#we shall try google word2vec model for better accuracy cause it has large pool of words dictionary
+
+model_word=list(model.wv.vocab)
+print(len(model_word))
+print(model_word)
+print(model.wv.most_similar('something'))
+
+#To look at the vectors that we formed now
+#print(model.wv.vectors)
+print(len(model.wv.vectors))
+#print(model.wv['decent'])
+print(model.wv.vectors[0])
+
